@@ -1,0 +1,40 @@
+/* Sidebar nhỏ gọn */
+.sidebar {
+  width: 160px;
+  border-right: 1px solid #dee2e6;
+  background-color: #f8f9fa;
+}
+.sidebar .nav-link {
+  font-size: 0.9rem;
+  padding: 6px 10px;
+}
+main {
+  margin-left: 160px;
+}
+
+/* Email nhỏ gọn */
+.table td.email, .table th.email {
+  font-size: 0.8rem;
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Status badge rộng cố định */
+.table td.status, .table th.status {
+  width: 180px;
+  text-align: center;
+}
+.table td.status .badge {
+  display: inline-block;
+  min-width: 140px;
+  font-size: 0.95rem;
+  padding: 0.6em 0.8em;
+}
+
+/* Gọn bảng */
+.table td, .table th {
+  padding: 0.4rem 0.6rem;
+  vertical-align: middle;
+}

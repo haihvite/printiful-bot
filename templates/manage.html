@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<h2 class="mb-3">Quản lý tài khoản</h2>
+
+<div class="card">
+  <div class="card-header">Danh sách đã đăng ký</div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-striped table-bordered mb-0 align-middle">
+        <thead class="table-light text-center">
+        <tr>
+          <th>Email</th>
+          <th>Fullname</th>
+          <th>Profile ID</th>
+          <th>Status</th>
+          <th style="min-width:120px">Actions</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for acc in accounts %}
+          <tr data-id="{{ acc['id'] }}">
+            <td>{{ acc['email'] }}</td>
+            <td>{{ acc['fullname'] }}</td>
+            <td class="profile text-center">{{ acc['profile_id'] or "-" }}</td>
+            <td class="status text-center">
+              <span class="badge bg-success">{{ acc['status'] }}</span>
+            </td>
+            <td class="text-center">
+              <div class="btn-group btn-group-sm" role="group">
+                <button class="btn btn-outline-danger"
+                        onclick="deleteAccount('{{ acc.id }}')">Delete</button>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function deleteAccount(id){
+  if(!confirm("Bạn có chắc muốn xóa account này?")) return;
+  const res = await fetch(`/delete/${id}`, {method:'POST'});
+  if(res.ok){ location.reload(); }
+}
+
+// Poll status
+async function refresh(){
+  const res = await fetch('/api/accounts?mode=manage');
+  const data = await res.json();
+  for (const acc of data){
+    const row = document.querySelector(`tr[data-id="${acc.id}"]`);
+    if(!row) continue;
+    row.querySelector('.status').innerHTML =
+      `<span class="badge bg-success">${acc.status}</span>`;
+    row.querySelector('.profile').textContent = acc.profile_id || "-";
+  }
+}
+setInterval(refresh, 3000);
+</script>
+{% endblock %}

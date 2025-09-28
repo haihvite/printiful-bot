@@ -1,0 +1,6 @@
+None|LiterGillece792@hotmail.com|xC0Ae162rXg2|Lỗi: list indices must be integers or slices, not str
+None|LiterGillece792@hotmail.com|xC0Ae162rXg2|Lỗi: list indices must be integers or slices, not str|127.0.0.1:60000
+dfdde491-25fb-46b4-9cd1-0e4dcaa4df91|LiterGillece792@hotmail.com|xC0Ae162rXg2|Đã điền form|127.0.0.1:60000
+dfdde491-25fb-46b4-9cd1-0e4dcaa4df91|LiterGillece792@hotmail.com|xC0Ae162rXg2|Đã điền form|127.0.0.1:60000
+None|LiterGillece792@hotmail.com|xC0Ae162rXg2|Lỗi: Không tạo được profile: {'success': False, 'data': None, 'message': 'Object reference not set to an instance of an object.'}|127.0.0.1:60000
+f8c9e5bc-9063-4644-b557-c3e25a06c14e|LiterGillece792@hotmail.com|xC0Ae162rXg2|Lỗi: Không mở được profile: {'success': False, 'data': None, 'message': 'Yêu cầu cập trình duyệt [Chromium] [119]'}|127.0.0.1:60000
