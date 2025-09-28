@@ -394,3 +394,31 @@ def check_registration_success(page, fullname=None, timeout=180, idle_limit=15, 
     if status_cb and acc_id:
         status_cb(acc_id, "Đăng ký thất bại ❌")
     return False
+
+def login_account(page, email, password, status_cb=None, acc_id=None):
+    import time, logging
+    try:
+        page.goto("https://www.printful.com/auth/login", timeout=60000)
+        page.wait_for_load_state("domcontentloaded", timeout=10000)
+
+        # điền email
+        page.fill("input[name='email']", email)
+        # điền password
+        page.fill("input[name='password']", password)
+        # click nút Login
+        page.click("button[type='submit']")
+
+        if status_cb and acc_id:
+            status_cb(acc_id, "Đã submit login form...")
+
+        # chờ dashboard
+        page.wait_for_url("**/dashboard", timeout=30000)
+        logging.info(f"[Account {acc_id}] Login thành công ✅")
+        if status_cb and acc_id:
+            status_cb(acc_id, "Login thành công ✅")
+        return True
+    except Exception as e:
+        logging.error(f"[Account {acc_id}] Lỗi khi login: {e}")
+        if status_cb and acc_id:
+            status_cb(acc_id, "Login thất bại ❌")
+        return False

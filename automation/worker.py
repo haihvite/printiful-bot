@@ -8,9 +8,22 @@ from automation.site_actions import (
     submit_signup,
     handle_popups,
     check_registration_success,
+    login_account,
 )
 from db import get_conn
+from automation.proxy_utils import release_port
+import csv
 
+def save_registered_account(acc):
+    """Lưu account đã đăng ký thành công ra file CSV"""
+    with open("registered_accounts.csv", "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            acc["profile_id"],
+            acc["email"],
+            acc["password"],
+            acc["fullname"]
+        ])
 
 def update_status(acc_id: int, status: str):
     conn = get_conn()
@@ -35,7 +48,7 @@ def safe_goto(page, url, timeout=60000, retries=1):
                 return False
 
 
-def worker_register(acc_id: int):
+def worker_register(acc_id: int, proxy: dict):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM accounts WHERE id=?", (acc_id,))
@@ -47,17 +60,16 @@ def worker_register(acc_id: int):
     email, password, fullname = acc["email"], acc["password"], acc["fullname"]
 
     gpm = None
-    try:
-        update_status(acc_id, "Register: bắt đầu")
+    port = proxy["local_port"]
+    proxy_str = f"{proxy['type']}://{proxy['host']}:{proxy['port']}"
 
-        proxies = get_proxies(1)
-        proxy = proxies[0]
-        proxy_str = f"{proxy['type']}://{proxy['host']}:{proxy['port']}"
-        update_status(acc_id, f"Proxy: {proxy_str}")
+    try:
+        update_status(acc_id, f"Register: bắt đầu với proxy {proxy_str} (local {port})")
 
         gpm = GpmProfile()
         browser_version = get_random_browser_version()
         ua = make_user_agent(browser_version)
+
         payload = {
             "profile_name": f"acc_{email}",
             "group_name": "All",
@@ -80,6 +92,7 @@ def worker_register(acc_id: int):
             "webrtc_mode": 2,
             "user_agent": ua,
         }
+
         profile_id = gpm.create_profile(payload)
         update_status(acc_id, f"Profile đã tạo: {profile_id}")
 
@@ -107,15 +120,19 @@ def worker_register(acc_id: int):
         submit_signup(page)
         update_status(acc_id, "Đã ấn Submit – Đang chờ survey/dashboard...")
 
-        success = check_registration_success(page, None, timeout=180,
-                                             status_cb=update_status, acc_id=acc_id)
+        success = check_registration_success(
+            page, None, timeout=180, status_cb=update_status, acc_id=acc_id
+        )
         if success:
             update_status(acc_id, "Đăng ký thành công ✅")
             conn = get_conn()
             cur = conn.cursor()
             cur.execute("UPDATE accounts SET status=? WHERE id=?", ("registered", acc_id))
             conn.commit()
+            cur.execute("SELECT * FROM accounts WHERE id=?", (acc_id,))
+            acc = cur.fetchone()
             conn.close()
+            save_registered_account(acc)   # 🔹 lưu ra CSV
         else:
             update_status(acc_id, "Đăng ký thất bại ❌")
 
@@ -127,6 +144,59 @@ def worker_register(acc_id: int):
             if gpm:
                 gpm.stop()
                 logging.info(f"[Account {acc_id}] Profile đã đóng")
-                #update_status(acc_id, "Profile đã đóng")
         except Exception:
             pass
+        # 🔹 Giải phóng local_port khi xong
+        release_port(port)
+
+
+def worker_login(acc_id: int, proxy: dict):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM accounts WHERE id=?", (acc_id,))
+    acc = cur.fetchone()
+    conn.close()
+    if not acc:
+        return
+
+    email, password, fullname, profile_id = acc["email"], acc["password"], acc["fullname"], acc["profile_id"]
+
+    gpm = None
+    try:
+        update_status(acc_id, "Login: bắt đầu")
+
+        if not profile_id:
+            update_status(acc_id, "Không có profile_id, cần đăng ký trước")
+            return
+
+        # mở lại profile cũ
+        gpm = GpmProfile()
+        gpm.profile_id = profile_id
+        gpm.start()   # start theo profile_id có sẵn
+        page = gpm.connect()
+
+        # thử vào dashboard
+        page.goto("https://www.printful.com/dashboard/default", timeout=60000)
+        page.wait_for_load_state("domcontentloaded", timeout=10000)
+        handle_popups(page)
+
+        if "auth/login" in page.url:
+            update_status(acc_id, "Session hết hạn → cần login lại")
+            success = login_account(page, email, password, update_status, acc_id)
+            if success:
+                update_status(acc_id, "Login thành công ✅")
+            else:
+                update_status(acc_id, "Login thất bại ❌")
+        else:
+            update_status(acc_id, "Login thành công (session) ✅")
+
+    except Exception as e:
+        update_status(acc_id, f"Lỗi login: {e}")
+        logging.exception(f"[worker_login] {e}")
+    finally:
+        if gpm:
+            try:
+                gpm.stop()
+            except Exception:
+                pass
+        release_port(proxy["local_port"])

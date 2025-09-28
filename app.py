@@ -5,9 +5,12 @@ from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from automation.proxy_utils import get_proxies
 
-from automation.worker import worker_register
+from automation.worker import worker_register, worker_login
 from db import get_conn, init_db, get_accounts
+from fastapi.responses import StreamingResponse
+import io, csv
 
 # ---------- cấu hình executor ----------
 MAX_WORKERS = 5
@@ -71,25 +74,6 @@ def api_accounts(mode: str = None):
 
 
 # ---------- Chạy action ----------
-@app.post("/run/{acc_id}/{action}")
-def run_action(acc_id: int, action: str):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM accounts WHERE id=?", (acc_id,))
-    acc = cur.fetchone()
-    if not acc:
-        conn.close()
-        return JSONResponse({"ok": False, "error": "Account not found"}, status_code=404)
-
-    cur.execute("UPDATE accounts SET status=? WHERE id=?", (f"Running: {action}", acc_id))
-    conn.commit()
-    conn.close()
-
-    if action == "register":
-        executor.submit(worker_register, acc_id)
-    else:
-        logging.warning(f"Hành động {action} chưa được implement.")
-    return JSONResponse({"ok": True})
 
 
 # ---------- Xoá account ----------
@@ -125,3 +109,96 @@ def page_manage(request: Request):
         "active": "manage",
         "title": "Quản lý tài khoản"
     })
+
+
+# ---------- API Run All ----------
+@app.post("/api/register_all")
+def register_all():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM accounts WHERE status='idle'")
+    accounts = cur.fetchall()
+    conn.close()
+
+    count = len(accounts)
+    if count == 0:
+        return {"status": "ok", "message": "Không có account idle để chạy."}
+
+    proxies = get_proxies(count) or []
+    if len(proxies) < count:
+        logging.error(f"Yêu cầu {count} proxy nhưng chỉ lấy được {len(proxies)} → hủy chạy.")
+        return {
+            "status": "error",
+            "message": f"Không đủ proxy ({len(proxies)}/{count}) → không chạy account nào."
+        }
+
+    # đủ proxy mới chạy
+    started = 0
+    for i, acc in enumerate(accounts):
+        acc_id = acc["id"]
+        proxy = proxies[i]
+
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("UPDATE accounts SET status=? WHERE id=?", ("Running: register", acc_id))
+        conn.commit()
+        conn.close()
+
+        executor.submit(worker_register, acc_id, proxy)
+        started += 1
+
+    return {
+        "status": "ok",
+        "message": f"Đã khởi chạy {started} account (idle)."
+    }
+
+@app.get("/export_registered")
+def export_registered():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT profile_id, email, password, fullname FROM accounts WHERE status='registered'")
+    rows = cur.fetchall()
+    conn.close()
+
+    # tạo file CSV trong memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["profile_id", "email", "password", "fullname"])
+    for r in rows:
+        writer.writerow([r["profile_id"], r["email"], r["password"], r["fullname"]])
+
+    output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=registered_accounts.csv"}
+    )
+
+@app.post("/run/{acc_id}/{action}")
+def run_action(acc_id: int, action: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM accounts WHERE id=?", (acc_id,))
+    acc = cur.fetchone()
+    if not acc:
+        conn.close()
+        return JSONResponse({"ok": False, "error": "Account not found"}, status_code=404)
+
+    cur.execute("UPDATE accounts SET status=? WHERE id=?", (f"Running: {action}", acc_id))
+    conn.commit()
+    conn.close()
+
+    if action == "register":
+        proxies = get_proxies(1)
+        if proxies:
+            proxy = proxies[0]
+            executor.submit(worker_register, acc_id, proxy)
+    elif action == "login":
+        proxies = get_proxies(1)
+        if proxies:
+            proxy = proxies[0]
+            executor.submit(worker_login, acc_id, proxy)
+    else:
+        logging.warning(f"Hành động {action} chưa được implement.")
+
+    return JSONResponse({"ok": True})

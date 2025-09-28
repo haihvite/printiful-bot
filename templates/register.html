@@ -14,6 +14,10 @@ b@y.com|pass456|Bob"></textarea>
     </form>
   </div>
 </div>
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h5>Danh sách Account</h5>
+  <button id="run-all" class="btn btn-primary btn-sm">Run All</button>
+</div>
 
 <!-- Table -->
 <div class="card">
@@ -57,6 +61,19 @@ b@y.com|pass456|Bob"></textarea>
 {% endblock %}
 
 {% block scripts %}
+
+<script>
+document.getElementById("run-all").addEventListener("click", function() {
+  fetch("/api/register_all", {method: "POST"})
+    .then(res => res.json())
+    .then(data => {
+      alert(data.message);
+      location.reload(); // reload để UI cập nhật status
+    })
+    .catch(err => alert("Lỗi: " + err));
+});
+</script>
+
 <script>
 async function run(id, action){
   const res = await fetch(`/run/${id}/${action}`, {method:'POST'});
@@ -70,18 +87,28 @@ async function deleteAccount(id){
 }
 
 // Poll status
+// Poll status
 async function refresh(){
   const res = await fetch('/api/accounts?mode=register');
   const data = await res.json();
   for (const acc of data){
     const row = document.querySelector(`tr[data-id="${acc.id}"]`);
     if(!row) continue;
+
     let badgeClass = "bg-secondary";
-    if(acc.status.toLowerCase().includes("running")) badgeClass="bg-info text-dark";
-    if(acc.status.toLowerCase().includes("registered")) badgeClass="bg-success";
-    if(acc.status.toLowerCase().includes("error")) badgeClass="bg-danger";
+    let statusText = acc.status;
+
+    const st = acc.status.toLowerCase();
+    if(st.includes("running")) badgeClass="bg-info text-dark";
+    if(st.includes("survey")) badgeClass="bg-info text-dark";
+    if(st.includes("đăng ký thành công") || st === "registered") {
+      badgeClass="bg-success";
+      statusText = "Đăng ký thành công ✅";
+    }
+    if(st.includes("error") || st.includes("thất bại")) badgeClass="bg-danger";
+
     row.querySelector('.status').innerHTML =
-      `<span class="badge ${badgeClass}">${acc.status}</span>`;
+      `<span class="badge ${badgeClass}">${statusText}</span>`;
     row.querySelector('.profile').textContent = acc.profile_id || "-";
   }
 }

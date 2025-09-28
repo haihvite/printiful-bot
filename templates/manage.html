@@ -2,6 +2,12 @@
 {% block content %}
 <h2 class="mb-3">Quản lý tài khoản</h2>
 
+<div class="mb-3">
+  <a class="btn btn-success" href="/export_registered" target="_blank">
+    Export Registered Accounts
+  </a>
+</div>
+
 <div class="card">
   <div class="card-header">Danh sách đã đăng ký</div>
   <div class="card-body p-0">
@@ -25,12 +31,14 @@
             <td class="status text-center">
               <span class="badge bg-success">{{ acc['status'] }}</span>
             </td>
-            <td class="text-center">
-              <div class="btn-group btn-group-sm" role="group">
-                <button class="btn btn-outline-danger"
-                        onclick="deleteAccount('{{ acc.id }}')">Delete</button>
-              </div>
-            </td>
+<td class="text-center">
+  <div class="btn-group btn-group-sm" role="group">
+    <button class="btn btn-primary"
+            onclick="runAction('{{ acc.id }}','login')">Login</button>
+    <button class="btn btn-danger"
+            onclick="deleteAccount('{{ acc.id }}')">Delete</button>
+  </div>
+</td>
           </tr>
         {% endfor %}
         </tbody>
@@ -42,6 +50,15 @@
 
 {% block scripts %}
 <script>
+
+  async function runAction(id, action){
+  const res = await fetch(`/run/${id}/${action}`, {method:'POST'});
+  const data = await res.json();
+  if(!res.ok || data.status === "error"){ 
+    alert('Không chạy được action: ' + (data.message || action)); 
+  }
+}
+
 async function deleteAccount(id){
   if(!confirm("Bạn có chắc muốn xóa account này?")) return;
   const res = await fetch(`/delete/${id}`, {method:'POST'});
