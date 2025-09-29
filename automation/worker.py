@@ -11,7 +11,7 @@ from automation.site_actions import (
     login_account,
 )
 from db import get_conn
-from automation.proxy_utils import release_port
+
 import csv
 
 def save_registered_account(acc):
@@ -124,7 +124,7 @@ def worker_register(acc_id: int, proxy: dict):
             page, None, timeout=180, status_cb=update_status, acc_id=acc_id
         )
         if success:
-            update_status(acc_id, "Đăng ký thành công ✅")
+            #update_status(acc_id, "Đăng ký thành công ✅")
             conn = get_conn()
             cur = conn.cursor()
             cur.execute("UPDATE accounts SET status=? WHERE id=?", ("registered", acc_id))
@@ -140,14 +140,12 @@ def worker_register(acc_id: int, proxy: dict):
         update_status(acc_id, f"error: {e}")
         logging.exception(f"[worker_register] Lỗi khi xử lý {email}: {e}")
     finally:
-        try:
-            if gpm:
+        if gpm:
+            try:
                 gpm.stop()
                 logging.info(f"[Account {acc_id}] Profile đã đóng")
-        except Exception:
-            pass
-        # 🔹 Giải phóng local_port khi xong
-        release_port(port)
+            except Exception:
+                pass
 
 
 def worker_login(acc_id: int, proxy: dict):
@@ -197,6 +195,6 @@ def worker_login(acc_id: int, proxy: dict):
         if gpm:
             try:
                 gpm.stop()
+                logging.info(f"[Account {acc_id}] Profile đã đóng")
             except Exception:
                 pass
-        release_port(proxy["local_port"])

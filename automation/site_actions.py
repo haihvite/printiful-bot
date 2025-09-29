@@ -227,6 +227,8 @@ def complete_survey(page, max_steps=50, idle_limit=15, status_cb=None, acc_id=No
         container = page.query_selector("div.lead-scoring-survey")
         if not container:
             logging.info("[survey] Không còn survey.")
+            if status_cb and acc_id:
+                status_cb(acc_id, "Đăng ký thành công ✅")
             return
 
         answers = page.locator("div.lead-scoring-survey__answer-button")

@@ -86,32 +86,65 @@ async function deleteAccount(id){
   if(res.ok){ location.reload(); }
 }
 
-// Poll status
-// Poll status
+let previousIds = new Set();
+
 async function refresh(){
-  const res = await fetch('/api/accounts?mode=register');
-  const data = await res.json();
-  for (const acc of data){
-    const row = document.querySelector(`tr[data-id="${acc.id}"]`);
-    if(!row) continue;
+  try {
+    const res = await fetch('/api/accounts?mode=register');
+    const data = await res.json();
 
-    let badgeClass = "bg-secondary";
-    let statusText = acc.status;
+    // Tạo set mới cho id hiện tại
+    const currentIds = new Set(data.map(acc => acc.id));
 
-    const st = acc.status.toLowerCase();
-    if(st.includes("running")) badgeClass="bg-info text-dark";
-    if(st.includes("survey")) badgeClass="bg-info text-dark";
-    if(st.includes("đăng ký thành công") || st === "registered") {
-      badgeClass="bg-success";
-      statusText = "Đăng ký thành công ✅";
+    // Tìm acc đã biến mất (tức là đã đăng ký thành công)
+    for (let oldId of previousIds){
+      if(!currentIds.has(oldId)){
+        // lấy email hoặc fullname từ localStorage trước khi biến mất
+        const removedAcc = document.querySelector(`tr[data-id="${oldId}"]`);
+        let info = removedAcc ? removedAcc.querySelector("td:nth-child(2)").textContent : ("ID " + oldId);
+        alert(`✅ Account ${info} đã đăng ký thành công → chuyển sang tab Manage`);
+      }
     }
-    if(st.includes("error") || st.includes("thất bại")) badgeClass="bg-danger";
 
-    row.querySelector('.status').innerHTML =
-      `<span class="badge ${badgeClass}">${statusText}</span>`;
-    row.querySelector('.profile').textContent = acc.profile_id || "-";
+    // Lưu lại danh sách id cho lần sau
+    previousIds = currentIds;
+
+    // Render lại bảng
+    const tbody = document.querySelector("#accountTable tbody");
+    tbody.innerHTML = "";
+    for (const acc of data){
+      const row = document.createElement("tr");
+      row.setAttribute("data-id", acc.id);
+
+      let badgeClass = "bg-secondary";
+      let statusText = acc.status;
+      const st = acc.status.toLowerCase();
+
+      if(st.includes("running") || st.includes("survey")){
+        badgeClass = "bg-info text-dark";
+      }
+      if(st.includes("đăng ký thành công") || st === "registered"){
+        badgeClass = "bg-success";
+        statusText = "Đăng ký thành công ✅";
+      }
+      if(st.includes("error") || st.includes("thất bại")){
+        badgeClass = "bg-danger";
+      }
+
+      row.innerHTML = `
+        <td>${acc.id}</td>
+        <td>${acc.email}</td>
+        <td>${acc.fullname}</td>
+        <td class="status"><span class="badge ${badgeClass}">${statusText}</span></td>
+      `;
+      tbody.appendChild(row);
+    }
+  } catch (e) {
+    console.error("Refresh error", e);
   }
 }
+
+// Poll mỗi 3 giây
 setInterval(refresh, 2000);
 </script>
 {% endblock %}

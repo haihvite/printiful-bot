@@ -1,65 +1,49 @@
 import requests
 import logging
-import json
-import os
 
-PORT_FILE = "ports.json"
-BASE_PORT = 60100
+API_URL = "http://127.0.0.1:10101/api/proxy"
+API_TYPE = "socks5"   # hoặc http nếu cần
+BASE_PORT = 60100     # port mặc định
 
-def load_ports():
-    if not os.path.exists(PORT_FILE):
-        return {"last_used": BASE_PORT - 1, "in_use": []}
-    with open(PORT_FILE, "r") as f:
-        return json.load(f)
-
-def save_ports(data):
-    with open(PORT_FILE, "w") as f:
-        json.dump(data, f)
-
-def allocate_port():
-    """Tạo port local tăng dần (cho mapping với proxy IP)"""
-    data = load_ports()
-    port = data["last_used"] + 1
-    data["last_used"] = port
-    data["in_use"].append(port)
-    save_ports(data)
-    logging.info(f"[proxy_utils] Allocated port {port}")
-    return port
-
-def release_port(port):
-    """Giải phóng port"""
-    data = load_ports()
-    if port in data["in_use"]:
-        data["in_use"].remove(port)
-        save_ports(data)
-        logging.info(f"[proxy_utils] Released port {port}")
-
-def get_proxies(count, country="US", proxy_type="socks5"):
+def get_proxies(count: int = 1, base_port: int = BASE_PORT, proxy_type: str = API_TYPE, country: str = "US"):
     """
-    Lấy proxies từ 9Proxy API và phân bổ qua port manager.
-    Trả về list dict proxy {host, port, type}
+    Lấy danh sách proxy từ API 9Proxy.
+    Ví dụ: count=5, base_port=60100 → trả về 60100..60104
     """
-    url = f"http://127.0.0.1:10101/api/proxy?t=2&num={count}&country={country}"
-    logging.info(f"Đang gọi API lấy {count} proxy: {url}")
-    resp = requests.get(url)
-    resp.raise_for_status()
-    data = resp.json()
+    try:
+        url = f"{API_URL}?t=2&num={count}&port={base_port}&country={country}"
+        logging.info(f"[Proxy] Gọi API lấy {count} proxy từ {url}")
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
 
-    if not data or "data" not in data or not data["data"]:
-        raise Exception("Không lấy được proxy từ 9Proxy")
+        if data.get("error"):
+            logging.error(f"[Proxy] API báo lỗi: {data}")
+            return []
 
-    proxies = []
-    for proxy_raw in data["data"]:
-        host, port_api = proxy_raw.split(":")
-        local_port = allocate_port()  # gán port local cho từng proxy
-        proxies.append({
-            "host": host,
-            "port": int(port_api),     # port thật từ API 9Proxy
-            "local_port": local_port,  # port local để map vào profile
-            "username": "",
-            "password": "",
-            "type": proxy_type
-        })
+        proxies = []
+        for i, entry in enumerate(data.get("data", [])):
+            # entry có dạng "127.0.0.1:60100"
+            if ":" not in entry:
+                logging.warning(f"[Proxy] entry không hợp lệ: {entry}")
+                continue
+            host, port_str = entry.split(":")
+            port = int(port_str)
 
-    logging.info(f"Đã lấy {len(proxies)} proxy thành công")
-    return proxies
+            proxy = {
+                "host": host,
+                "port": port,
+                "username": None,
+                "password": None,
+                "type": proxy_type,
+                "local_port": port  # ở đây local_port = port do API cấp
+            }
+            proxies.append(proxy)
+            logging.info(f"[Proxy] Proxy {i+1}/{count}: {proxy_type}://{host}:{port}")
+
+        logging.info(f"[Proxy] Hoàn tất lấy {len(proxies)}/{count} proxy (base_port={base_port}, country={country})")
+        return proxies
+
+    except Exception as e:
+        logging.exception(f"[Proxy] Lỗi khi lấy proxy: {e}")
+        return []
