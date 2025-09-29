@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Deposit</h2>
+
+<!-- Form import -->
+<form method="post" action="/import_deposit" class="mb-4">
+  <div class="mb-3">
+    <label for="accounts" class="form-label">Nhập danh sách Deposit Accounts</label>
+    <textarea class="form-control" id="accounts" name="accounts" rows="5"
+      placeholder="profile_id|email|password|fullname|amount"></textarea>
+    <div class="form-text">
+      Mỗi dòng: <code>profile_id|email|password|fullname|amount</code>
+    </div>
+  </div>
+  <button type="submit" class="btn btn-primary">Import</button>
+</form>
+
+<!-- Nút Run All -->
+<div class="mb-3">
+  <button class="btn btn-success" onclick="runAll()">Run All Deposit</button>
+</div>
+
+<!-- Bảng account -->
+<table class="table table-bordered" id="accountTable">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Profile ID</th>
+      <th>Email</th>
+      <th>Fullname</th>
+      <th>Amount</th>
+      <th>Status</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function refresh(){
+  const res = await fetch('/api/accounts?mode=deposit');
+  const data = await res.json();
+  const tbody = document.querySelector("#accountTable tbody");
+  tbody.innerHTML = "";
+  for (const acc of data){
+    const row = document.createElement("tr");
+    let badgeClass = "bg-secondary";
+    let statusText = acc.status;
+    const st = acc.status.toLowerCase();
+
+    if(st.includes("running")){
+      badgeClass = "bg-info text-dark";
+    }
+    if(st.includes("thành công")){
+      badgeClass = "bg-success";
+    }
+    if(st.includes("error") || st.includes("thất bại")){
+      badgeClass = "bg-danger";
+    }
+
+    row.innerHTML = `
+      <td>${acc.id}</td>
+      <td>${acc.profile_id || ""}</td>
+      <td>${acc.email}</td>
+      <td>${acc.fullname}</td>
+      <td>${acc.amount || ""}</td>
+      <td><span class="badge ${badgeClass}">${statusText}</span></td>
+      <td>
+        <button class="btn btn-sm btn-primary" onclick="runAction(${acc.id}, 'deposit')">Deposit</button>
+      </td>
+    `;
+    tbody.appendChild(row);
+  }
+}
+
+async function runAction(id, action){
+  const res = await fetch(`/run/${id}/${action}`, {method:'POST'});
+  const data = await res.json();
+  if(!res.ok || data.status === "error"){
+    alert('Không chạy được action: ' + (data.message || action));
+  }
+}
+
+async function runAll(){
+  const res = await fetch(`/api/deposit_all`, {method:'POST'});
+  const data = await res.json();
+  if(!res.ok || data.status === "error"){
+    alert('Không chạy được Run All Deposit');
+  }
+}
+
+// Auto refresh
+setInterval(refresh, 3000);
+refresh();
+</script>
+{% endblock %}

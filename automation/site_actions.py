@@ -215,84 +215,70 @@ def submit_signup(page, timeout=10000):
 
 
 # ---------- SURVEY + CHECK REGISTER ----------
-def complete_survey(page, max_steps=50, idle_limit=15, status_cb=None, acc_id=None):
-    """
-    Xử lý survey sau khi đăng ký Printful.
-    - Trả lời từng câu với delay ngẫu nhiên dài để giống người thật.
-    - Dừng khi container biến mất hoặc đạt max_steps/idle_limit.
-    """
-    steps, idle = 0, 0
+def complete_survey(page, status_cb=None, acc_id=None, max_steps=10):
+    import time, logging, random
 
-    while steps < max_steps and idle < idle_limit:
-        container = page.query_selector("div.lead-scoring-survey")
-        if not container:
-            logging.info("[survey] Không còn survey.")
-            if status_cb and acc_id:
-                status_cb(acc_id, "Đăng ký thành công ✅")
-            return
+    try:
+        for step in range(max_steps):
+            container = page.query_selector("div.lead-scoring-survey")
+            if not container:
+                logging.info(f"[survey][{acc_id}] Không còn survey → kết thúc")
+                if status_cb and acc_id:
+                    status_cb(acc_id, "Survey hoàn tất")
+                return True
 
-        answers = page.locator("div.lead-scoring-survey__answer-button")
-        try:
-            answers.first.wait_for(state="visible", timeout=10000)
-        except Exception:
-            idle += 1
-            time.sleep(1)
-            continue
+            # --- Xử lý input text ---
+            text_input = container.query_selector("input.pf-form-control")
+            if text_input and text_input.is_visible():
+                answer = random.choice(["Google", "Facebook", "Friend", "Internet", "Ads"])
+                logging.info(f"[survey][{acc_id}] Điền survey input: {answer}")
+                if status_cb and acc_id:
+                    status_cb(acc_id, f"Survey input: {answer}")
 
-        count = answers.count()
-        if count == 0:
-            logging.info("[survey] Hết câu hỏi.")
-            return
+                text_input.click()
+                time.sleep(random.uniform(0.5, 1.2))  # delay trước khi gõ
+                page.type("input.pf-form-control", answer, delay=random.randint(80,150))
+                time.sleep(random.uniform(0.8, 1.5))  # delay sau khi gõ
 
-        # chọn random một đáp án
-        idx = random.randrange(count)
-        choice = answers.nth(idx)
+                btn_finish = container.query_selector("button.pf-btn-primary")
+                if btn_finish and btn_finish.is_visible():
+                    logging.info(f"[survey][{acc_id}] Nhấn Finish survey (input)")
+                    btn_finish.click()
+                    time.sleep(random.uniform(1.5, 2.5))
+                    continue
 
-        try:
-            text = choice.inner_text(timeout=1000).strip()
-        except Exception:
-            text = "N/A"
+            # --- Xử lý các nút lựa chọn ---
+            answers = container.query_selector_all("div.lead-scoring-survey__answer-button")
+            if answers:
+                choice = random.choice(answers)
+                logging.info(f"[survey][{acc_id}] Chọn đáp án (step {step+1})")
+                if status_cb and acc_id:
+                    status_cb(acc_id, f"Survey bước {step+1}")
+                choice.click()
+                time.sleep(random.uniform(0.8, 1.5))  # delay sau click
 
-        logging.info(f"[survey] Đang xử lý survey (bước {steps+1}): {text}")
+                btn_next = container.query_selector("button.pf-btn-primary")
+                if btn_next and btn_next.is_visible():
+                    logging.info(f"[survey][{acc_id}] Nhấn Next")
+                    btn_next.click()
+                    time.sleep(random.uniform(1.5, 2.5))
+                continue
+
+            # --- Nếu không có gì để chọn / điền ---
+            logging.info(f"[survey][{acc_id}] Không tìm thấy input hay answer (step {step+1}) → thoát")
+            break
+
+        logging.info(f"[survey][{acc_id}] Survey kết thúc sau {max_steps} bước")
         if status_cb and acc_id:
-            status_cb(acc_id, f"Survey bước {steps+1}: {text}")
+            status_cb(acc_id, "Survey hoàn tất")
+        return True
 
-        # mô phỏng người đọc câu hỏi
-        time.sleep(random.uniform(2.5, 5.0))
+    except Exception as e:
+        logging.exception(f"[survey][{acc_id}] Lỗi survey: {e}")
+        if status_cb and acc_id:
+            status_cb(acc_id, f"Lỗi survey: {e}")
+        return False
 
-        # mô phỏng người rê chuột rồi click
-        human_delay(1.0, 2.5)
-        try:
-            choice.click(timeout=5000)
-        except Exception as e:
-            logging.warning(f"[survey] Lỗi click answer: {e}, chờ 1s rồi thử tiếp")
-            idle += 1
-            time.sleep(1)
-            continue
-
-        # mô phỏng người đọc câu tiếp theo
-        time.sleep(random.uniform(3.0, 6.0))
-
-        steps += 1
-
-        # stop early nếu đã thấy dashboard
-        if page.url.startswith("https://www.printful.com/dashboard/default"):
-            logging.info("[survey] Đã detect dashboard → dừng survey sớm.")
-            return
-
-        # check tiến triển (URL hoặc câu hỏi thay đổi)
-        prev_url, changed = page.url, False
-        for _ in range(6):
-            time.sleep(0.6)
-            if not page.query_selector("div.lead-scoring-survey"):
-                changed = True
-                break
-            if page.url != prev_url:
-                changed = True
-                break
-        idle = 0 if changed else (idle + 1)
-
-    logging.info("[survey] Dừng survey (đạt giới hạn bước hoặc idle).")
 
 
 def check_registration_success(page, fullname=None, timeout=180, idle_limit=15, status_cb=None, acc_id=None):
@@ -423,4 +409,86 @@ def login_account(page, email, password, status_cb=None, acc_id=None):
         logging.error(f"[Account {acc_id}] Lỗi khi login: {e}")
         if status_cb and acc_id:
             status_cb(acc_id, "Login thất bại ❌")
+        return False
+    
+
+def do_deposit(page, amount, status_cb=None, acc_id=None):
+    import time, logging
+    try:
+        page.goto("https://www.printful.com/dashboard/deposit", timeout=60000)
+        page.wait_for_load_state("domcontentloaded", timeout=10000)
+
+        if status_cb: status_cb(acc_id, f"Đang mở deposit page...")
+
+        # chọn số tiền
+        page.fill("input[name='amount']", str(amount))
+
+        # chọn phương thức thanh toán (ví dụ: PayPal)
+        btn = page.query_selector("button[data-test='deposit-paypal-btn']")
+        if btn and btn.is_visible():
+            btn.click()
+            logging.info(f"[Deposit] Submit PayPal {amount}")
+        else:
+            logging.warning("[Deposit] Không tìm thấy nút PayPal")
+
+        if status_cb: status_cb(acc_id, f"Đã submit deposit {amount}")
+
+        time.sleep(3)
+        return True
+    except Exception as e:
+        logging.error(f"Lỗi deposit: {e}")
+        return False
+    
+def add_billing_info(page, fullname, address, city, state, zipcode, status_cb=None, acc_id=None):
+    import time, logging
+    try:
+        logging.info(f"[Billing][{acc_id}] Mở trang billing...")
+        page.goto("https://www.printful.com/dashboard/billing", timeout=60000)
+        page.wait_for_load_state("domcontentloaded", timeout=10000)
+
+        if status_cb: status_cb(acc_id, "Đang điền form billing...")
+
+        # Điền Full Name
+        logging.info(f"[Billing][{acc_id}] Điền fullname: {fullname}")
+        page.click("input[name='fullName']")
+        page.type("input[name='fullName']", fullname, delay=100)
+
+        # Điền Address
+        logging.info(f"[Billing][{acc_id}] Điền address: {address}")
+        page.click("input[name='addressLine1']")
+        page.type("input[name='addressLine1']", address, delay=100)
+
+        # Điền City
+        logging.info(f"[Billing][{acc_id}] Điền city: {city}")
+        page.click("input[name='city']")
+        page.type("input[name='city']", city, delay=100)
+
+        # Điền State
+        logging.info(f"[Billing][{acc_id}] Điền state: {state}")
+        page.click("input[name='state']")
+        page.type("input[name='state']", state, delay=100)
+
+        # Điền Zipcode
+        logging.info(f"[Billing][{acc_id}] Điền zipcode: {zipcode}")
+        page.click("input[name='zip']")
+        page.type("input[name='zip']", zipcode, delay=100)
+
+        # Submit form
+        save_btn = page.query_selector("button[type='submit']")
+        if save_btn and save_btn.is_visible():
+            logging.info(f"[Billing][{acc_id}] Nhấn submit form billing")
+            save_btn.click()
+            if status_cb: status_cb(acc_id, "Đã submit billing info")
+        else:
+            logging.warning(f"[Billing][{acc_id}] Không tìm thấy nút submit")
+            if status_cb: status_cb(acc_id, "Không tìm thấy nút submit billing")
+            return False
+
+        time.sleep(3)  # đợi form xử lý
+        logging.info(f"[Billing][{acc_id}] Hoàn tất add billing")
+        return True
+
+    except Exception as e:
+        logging.exception(f"[Billing][{acc_id}] Lỗi add billing: {e}")
+        if status_cb: status_cb(acc_id, f"Lỗi billing: {e}")
         return False

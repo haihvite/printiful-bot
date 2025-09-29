@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from automation.proxy_utils import get_proxies
 
-from automation.worker import worker_register, worker_login
+from automation.worker import worker_register, worker_login, worker_deposit, worker_billing
 from db import get_conn, init_db, get_accounts
 from fastapi.responses import StreamingResponse
 import io, csv
@@ -202,3 +202,114 @@ def run_action(acc_id: int, action: str):
         logging.warning(f"Hành động {action} chưa được implement.")
 
     return JSONResponse({"ok": True})
+
+@app.get("/deposit")
+def deposit(request: Request):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM accounts WHERE profile_id IS NOT NULL")
+    accounts = cur.fetchall()
+    conn.close()
+    return templates.TemplateResponse("deposit.html", {"request": request, "accounts": accounts, "active": "deposit"})
+
+@app.post("/import_deposit")
+async def import_deposit(request: Request):
+    form = await request.form()
+    lines = form.get("accounts", "").splitlines()
+    conn = get_conn()
+    cur = conn.cursor()
+    for line in lines:
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) == 5:
+            profile_id, email, password, fullname, amount = parts
+            cur.execute("SELECT id FROM accounts WHERE profile_id=?", (profile_id,))
+            row = cur.fetchone()
+            if row:
+                cur.execute("UPDATE accounts SET amount=?, email=?, password=?, fullname=? WHERE profile_id=?",
+                            (amount, email, password, fullname, profile_id))
+            else:
+                cur.execute("INSERT INTO accounts (profile_id,email,password,fullname,amount,status) VALUES (?,?,?,?,?,'idle')",
+                            (profile_id,email,password,fullname,amount))
+    conn.commit()
+    conn.close()
+    return RedirectResponse("/deposit", status_code=303)
+
+@app.post("/api/deposit_all")
+def deposit_all():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM accounts WHERE status='idle' AND profile_id IS NOT NULL AND amount IS NOT NULL")
+    accounts = cur.fetchall()
+    conn.close()
+
+    if not accounts:
+        return {"status":"error","message":"Không có account để deposit"}
+
+    proxies = get_proxies(len(accounts))
+    if len(proxies) < len(accounts):
+        return {"status":"error","message":"Không đủ proxy"}
+
+    for i, acc in enumerate(accounts):
+        proxy = proxies[i]
+        executor.submit(worker_deposit, acc["id"], proxy)
+
+    return {"status":"ok","message":"Đã bắt đầu deposit"}
+
+@app.get("/billing")
+def billing(request: Request):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM accounts WHERE profile_id IS NOT NULL")
+    accounts = cur.fetchall()
+    conn.close()
+    return templates.TemplateResponse("billing.html", {"request": request, "accounts": accounts, "active": "billing"})
+
+
+@app.post("/import_billing")
+async def import_billing(request: Request):
+    form = await request.form()
+    lines = form.get("accounts", "").splitlines()
+    conn = get_conn()
+    cur = conn.cursor()
+    for line in lines:
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) == 8:
+            profile_id, email, password, fullname, address, city, state, zipcode = parts
+            cur.execute("SELECT id FROM accounts WHERE profile_id=?", (profile_id,))
+            row = cur.fetchone()
+            if row:
+                cur.execute("""UPDATE accounts 
+                               SET email=?, password=?, fullname=?, address=?, city=?, state=?, zipcode=? 
+                               WHERE profile_id=?""",
+                            (email,password,fullname,address,city,state,zipcode,profile_id))
+            else:
+                cur.execute("""INSERT INTO accounts 
+                               (profile_id,email,password,fullname,address,city,state,zipcode,status) 
+                               VALUES (?,?,?,?,?,?,?,?,'idle')""",
+                            (profile_id,email,password,fullname,address,city,state,zipcode))
+    conn.commit()
+    conn.close()
+    return RedirectResponse("/billing", status_code=303)
+
+@app.post("/api/billing_all")
+def billing_all():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""SELECT * FROM accounts 
+                   WHERE status='idle' AND profile_id IS NOT NULL 
+                   AND address IS NOT NULL AND city IS NOT NULL AND state IS NOT NULL AND zipcode IS NOT NULL""")
+    accounts = cur.fetchall()
+    conn.close()
+
+    if not accounts:
+        return {"status":"error","message":"Không có account để billing"}
+
+    proxies = get_proxies(len(accounts))
+    if len(proxies) < len(accounts):
+        return {"status":"error","message":"Không đủ proxy"}
+
+    for i, acc in enumerate(accounts):
+        proxy = proxies[i]
+        executor.submit(worker_billing, acc["id"], proxy)
+
+    return {"status":"ok","message":"Đã bắt đầu add billing"}

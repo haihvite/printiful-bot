@@ -9,6 +9,8 @@ from automation.site_actions import (
     handle_popups,
     check_registration_success,
     login_account,
+    do_deposit,
+    add_billing_info
 )
 from db import get_conn
 
@@ -198,3 +200,90 @@ def worker_login(acc_id: int, proxy: dict):
                 logging.info(f"[Account {acc_id}] Profile đã đóng")
             except Exception:
                 pass
+
+def worker_deposit(acc_id: int, proxy: dict):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM accounts WHERE id=?", (acc_id,))
+    acc = cur.fetchone()
+    conn.close()
+    if not acc:
+        return
+
+    gpm = None
+    try:
+        update_status(acc_id, "Deposit: bắt đầu")
+
+        profile_id = acc["profile_id"]
+        if not profile_id:
+            update_status(acc_id, "Chưa có profile_id → bỏ qua")
+            return
+
+        gpm = GpmProfile()
+        gpm.profile_id = profile_id
+        gpm.start()
+        page = gpm.connect()
+
+        handle_popups(page)
+
+        success = do_deposit(page, acc["amount"], update_status, acc_id)
+
+        if success:
+            update_status(acc_id, "Deposit thành công ✅")
+        else:
+            update_status(acc_id, "Deposit thất bại ❌")
+
+    except Exception as e:
+        update_status(acc_id, f"Lỗi deposit: {e}")
+    finally:
+        if gpm:
+            try: gpm.stop()
+            except: pass
+
+def worker_billing(acc_id: int, proxy: dict):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM accounts WHERE id=?", (acc_id,))
+    acc = cur.fetchone()
+    conn.close()
+    if not acc:
+        return
+
+    gpm = None
+    try:
+        update_status(acc_id, "Billing: bắt đầu")
+
+        profile_id = acc["profile_id"]
+        if not profile_id:
+            update_status(acc_id, "Chưa có profile_id → bỏ qua")
+            return
+
+        gpm = GpmProfile()
+        gpm.profile_id = profile_id
+        gpm.start()
+        page = gpm.connect()
+
+        handle_popups(page)
+
+        success = add_billing_info(
+            page,
+            acc["fullname"],
+            acc["address"],
+            acc["city"],
+            acc["state"],
+            acc["zipcode"],
+            update_status,
+            acc_id
+        )
+
+        if success:
+            update_status(acc_id, "Billing thành công ✅")
+        else:
+            update_status(acc_id, "Billing thất bại ❌")
+
+    except Exception as e:
+        update_status(acc_id, f"Lỗi billing: {e}")
+    finally:
+        if gpm:
+            try: gpm.stop()
+            except: pass
