@@ -215,69 +215,83 @@ def submit_signup(page, timeout=10000):
 
 
 # ---------- SURVEY + CHECK REGISTER ----------
-def complete_survey(page, status_cb=None, acc_id=None, max_steps=10):
-    import time, logging, random
+def complete_survey(page, max_steps=50, idle_limit=15, status_cb=None, acc_id=None):
+    """
+    Xử lý survey sau khi đăng ký Printful.
+    - Trả lời từng câu với delay ngẫu nhiên dài để giống người thật.
+    - Dừng khi container biến mất hoặc đạt max_steps/idle_limit.
+    """
+    steps, idle = 0, 0
 
-    try:
-        for step in range(max_steps):
-            container = page.query_selector("div.lead-scoring-survey")
-            if not container:
-                logging.info(f"[survey][{acc_id}] Không còn survey → kết thúc")
-                if status_cb and acc_id:
-                    status_cb(acc_id, "Survey hoàn tất")
-                return True
+    while steps < max_steps and idle < idle_limit:
+        container = page.query_selector("div.lead-scoring-survey")
+        if not container:
+            logging.info("[survey] Không còn survey.")
+            return
 
-            # --- Xử lý input text ---
-            text_input = container.query_selector("input.pf-form-control")
-            if text_input and text_input.is_visible():
-                answer = random.choice(["Google", "Facebook", "Friend", "Internet", "Ads"])
-                logging.info(f"[survey][{acc_id}] Điền survey input: {answer}")
-                if status_cb and acc_id:
-                    status_cb(acc_id, f"Survey input: {answer}")
+        answers = page.locator("div.lead-scoring-survey__answer-button")
+        try:
+            answers.first.wait_for(state="visible", timeout=10000)
+        except Exception:
+            idle += 1
+            time.sleep(1)
+            continue
 
-                text_input.click()
-                time.sleep(random.uniform(0.5, 1.2))  # delay trước khi gõ
-                page.type("input.pf-form-control", answer, delay=random.randint(80,150))
-                time.sleep(random.uniform(0.8, 1.5))  # delay sau khi gõ
+        count = answers.count()
+        if count == 0:
+            logging.info("[survey] Hết câu hỏi.")
+            return
 
-                btn_finish = container.query_selector("button.pf-btn-primary")
-                if btn_finish and btn_finish.is_visible():
-                    logging.info(f"[survey][{acc_id}] Nhấn Finish survey (input)")
-                    btn_finish.click()
-                    time.sleep(random.uniform(1.5, 2.5))
-                    continue
+        # chọn random một đáp án
+        idx = random.randrange(count)
+        choice = answers.nth(idx)
 
-            # --- Xử lý các nút lựa chọn ---
-            answers = container.query_selector_all("div.lead-scoring-survey__answer-button")
-            if answers:
-                choice = random.choice(answers)
-                logging.info(f"[survey][{acc_id}] Chọn đáp án (step {step+1})")
-                if status_cb and acc_id:
-                    status_cb(acc_id, f"Survey bước {step+1}")
-                choice.click()
-                time.sleep(random.uniform(0.8, 1.5))  # delay sau click
+        try:
+            text = choice.inner_text(timeout=1000).strip()
+        except Exception:
+            text = "N/A"
 
-                btn_next = container.query_selector("button.pf-btn-primary")
-                if btn_next and btn_next.is_visible():
-                    logging.info(f"[survey][{acc_id}] Nhấn Next")
-                    btn_next.click()
-                    time.sleep(random.uniform(1.5, 2.5))
-                continue
-
-            # --- Nếu không có gì để chọn / điền ---
-            logging.info(f"[survey][{acc_id}] Không tìm thấy input hay answer (step {step+1}) → thoát")
-            break
-
-        logging.info(f"[survey][{acc_id}] Survey kết thúc sau {max_steps} bước")
+        logging.info(f"[survey] Đang xử lý survey (bước {steps+1}): {text}")
         if status_cb and acc_id:
-            status_cb(acc_id, "Survey hoàn tất")
-        return True
+            status_cb(acc_id, f"Survey bước {steps+1}: {text}")
 
-    except Exception as e:
-        logging.exception(f"[survey][{acc_id}] Lỗi survey: {e}")
-        if status_cb and acc_id:
-            status_cb(acc_id, f"Lỗi survey: {e}")
-        return False
+        # mô phỏng người đọc câu hỏi
+        time.sleep(random.uniform(2.5, 5.0))
+
+        # mô phỏng người rê chuột rồi click
+        human_delay(1.0, 2.5)
+        try:
+            choice.click(timeout=5000)
+        except Exception as e:
+            logging.warning(f"[survey] Lỗi click answer: {e}, chờ 1s rồi thử tiếp")
+            idle += 1
+            time.sleep(1)
+            continue
+
+        # mô phỏng người đọc câu tiếp theo
+        time.sleep(random.uniform(3.0, 6.0))
+
+        steps += 1
+
+        # stop early nếu đã thấy dashboard
+        if page.url.startswith("https://www.printful.com/dashboard/default"):
+            logging.info("[survey] Đã detect dashboard → dừng survey sớm.")
+            return
+
+        # check tiến triển (URL hoặc câu hỏi thay đổi)
+        prev_url, changed = page.url, False
+        for _ in range(6):
+            time.sleep(0.6)
+            if not page.query_selector("div.lead-scoring-survey"):
+                changed = True
+                break
+            if page.url != prev_url:
+                changed = True
+                break
+        idle = 0 if changed else (idle + 1)
+
+    logging.info("[survey] Dừng survey (đạt giới hạn bước hoặc idle).")
+
 
 
 
